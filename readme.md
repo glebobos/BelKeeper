@@ -18,7 +18,7 @@ The main goal of this project is to:
 - Secure server deployment
 - Enhanced accessibility to blocked content
 - Protection against censorship and information manipulation
-- Applicable for eveyone
+- Applicable for everyone
 
 ## Contributing
 
@@ -30,4 +30,4 @@ This project is intended for legal and ethical use only. Users should comply wit
 
 ## License
 
-Я хз, бери качай, юзай
+This project is licensed under the MIT License. See the LICENSE file for more details.
