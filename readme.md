@@ -31,3 +31,10 @@ This project is intended for legal and ethical use only. Users should comply wit
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more details.
+
+TODO:
+ws ssm start-session     --region eu-central-1     --target $(aws ec2 describe-instances \
+        --region eu-central-1 \
+        --filters "Name=tag:aws:cloudformation:stack-name,Values=makeMeFree" "Name=instance-state-name,Values=running" \
+        --query "Reservations[0].Instances[0].InstanceId" \
+        --output text)     --document-name AWS-StartInteractiveCommand     --parameters command="qrencode -t ansiutf8 < /tmp/client_wg0.conf"

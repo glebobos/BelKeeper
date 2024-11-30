@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'WireGuard VPN Server Setup'
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where the WireGuard server will be deployed
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of public subnet IDs for the Auto Scaling group
+
+  WireGuardPort:
+    Type: Number
+    Default: 51820
+    Description: Port for WireGuard VPN
+  Environment:
+    Type: String
+    Default: free
+    Description: Environment name
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2'
+
+Resources:
+  WireGuardSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for WireGuard VPN
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: !Ref WireGuardPort
+          ToPort: !Ref WireGuardPort
+          CidrIp: 0.0.0.0/0
+
+  WireGuardInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  WireGuardInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref WireGuardInstanceRole
+
+  WireGuardLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        # ImageId: ami-00d72ec36cdfc8a0a
+        InstanceType: t2.micro
+        IamInstanceProfile:
+          Arn: !GetAtt WireGuardInstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref WireGuardSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+
+            set -e
+
+            # Update and install
+            sudo yum update -y
+            sudo amazon-linux-extras install epel -y
+            sudo yum install -y wireguard-dkms wireguard-tools qrencode
+
+            # Enable IP forwarding
+            echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
+            sudo sysctl -p
+
+            # Generate keys
+            server_private_key=$(wg genkey)
+            server_public_key=$(echo "$server_private_key" | wg pubkey)
+            client_private_key=$(wg genkey)
+            client_public_key=$(echo "$client_private_key" | wg pubkey)
+            preshared_key=$(wg genpsk)
+
+            # Set custom port
+            custom_port=${WireGuardPort}
+
+            # Create server config
+            sudo tee /etc/wireguard/wg0.conf > /dev/null <<EOT
+            [Interface]
+            PrivateKey = $server_private_key
+            Address = 10.0.0.1/24
+            ListenPort = $custom_port
+            PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+            PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+            [Peer]
+            PublicKey = $client_public_key
+            PresharedKey = $preshared_key
+            AllowedIPs = 10.0.0.2/32
+            EOT
+
+            sudo chmod 600 /etc/wireguard/wg0.conf
+
+            # Enable and start WireGuard
+            sudo systemctl enable wg-quick@wg0
+            sudo systemctl start wg-quick@wg0
+
+            # Set your server's DNS name here
+            server_dns_name=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)
+
+            # Create client config
+            client_config="[Interface]
+            PrivateKey = $client_private_key
+            Address = 10.0.0.2/32
+            DNS = 8.8.8.8, 8.8.4.4
+
+            [Peer]
+            PublicKey = $server_public_key
+            PresharedKey = $preshared_key
+            AllowedIPs = 0.0.0.0/0
+            Endpoint = $server_dns_name:$custom_port
+            PersistentKeepalive = 25"
+
+            echo "$client_config" > /home/ec2-user/client_wg0.conf
+
+            # Generate QR code and save as PNG
+            qrencode -t png -o /home/ec2-user/wireguard_config_qr.png < /home/ec2-user/client_wg0.conf
+
+            # Firewall configuration
+            sudo iptables -A INPUT -p udp --dport $custom_port -j ACCEPT
+            sudo iptables -A INPUT -i wg0 -j ACCEPT
+            sudo iptables -A FORWARD -i wg0 -j ACCEPT
+            sudo iptables -A FORWARD -o wg0 -j ACCEPT
+
+            echo "WireGuard installation and configuration completed."
+
+  WireGuardAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref SubnetIds
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WireGuardLaunchTemplate
+        Version: !GetAtt WireGuardLaunchTemplate.LatestVersionNumber
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+
+Outputs:
+  AutoScalingGroupName:
+    Description: Name of the Auto Scaling group
+    Value: !Ref WireGuardAutoScalingGroup
