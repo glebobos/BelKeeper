@@ -1,42 +1,83 @@
-# Secure Server Deployment System
+# BelKeeper WireGuard VPN Server
 
-## Overview
-
-This repository is dedicated to creating a system for deploying secure servers. These servers are designed to improve the availability of information that may be intentionally or unintentionally blocked in an attempt to alter reality and influence users' intentions, primarily in Belarus.
-
-## Purpose
-
-The main goal of this project is to:
-
-1. Enhance access to potentially censored or restricted information
-2. Provide a secure and reliable platform for hosting sensitive data
-3. Counter attempts to manipulate public opinion through information control
-4. Ensure freedom of information, especially for users in Belarus
+This repository contains scripts and configurations to deploy and manage a WireGuard VPN server on AWS using CloudFormation and Auto Scaling.
 
 ## Features
 
-- Secure server deployment
-- Enhanced accessibility to blocked content
-- Protection against censorship and information manipulation
-- Applicable for everyone
+- **Automated Deployment**: Deploy a WireGuard VPN server using AWS CloudFormation.
+- **Auto Scaling**: Scale the server up or down based on demand.
+- **Secure Configuration**: Automatically configure WireGuard with secure keys and firewall rules.
+- **Client Configuration**: Generate client configuration files and QR codes for easy setup.
 
-## Contributing
+## Prerequisites
 
-We welcome contributions from developers, security experts, and anyone interested in promoting freedom of information. Please read our contributing guidelines before submitting pull requests.
+- AWS CLI installed and configured with appropriate permissions.
+- Bash shell environment.
+- jq (JSON processor) installed for parsing AWS CLI outputs.
 
-## Disclaimer
+## Files Overview
 
-This project is intended for legal and ethical use only. Users should comply with all applicable laws and regulations in their jurisdiction.
+### `/wireGuard/makeMeFree.yaml`
+CloudFormation template to deploy the WireGuard VPN server. It includes:
+- Security Group for WireGuard.
+- IAM Role and Instance Profile for EC2.
+- Launch Template for the WireGuard server.
+- Auto Scaling Group to manage server instances.
+
+### `/wireGuard/scaleServer.sh`
+Bash script to scale the Auto Scaling Group up or down:
+- `up`: Scales the group to 1 instance.
+- `down`: Scales the group to 0 instances.
+
+### `/wireGuard/init.sh`
+Bash script to deploy or delete the CloudFormation stack:
+- Create or update the stack with the required parameters.
+- Delete the stack when no longer needed.
+
+### `/wireGuard/generateQR.sh`
+Bash script to connect to the EC2 instance via AWS SSM and generate a QR code for the WireGuard client configuration.
+
+## Usage
+
+### 1. Deploy the CloudFormation Stack
+Run the `init.sh` script to deploy the stack:
+```bash
+./init.sh -f /path/to/makeMeFree.yaml
+```
+Optional flags:
+- `-e`: Specify the environment (default: `free`).
+- `-r`: Specify the AWS region (default: `eu-central-1`).
+- `-d`: Delete the stack.
+
+### 2. Scale the Server
+Use the `scaleServer.sh` script to scale the server:
+```bash
+./scaleServer.sh up   # Scale up to 1 instance
+./scaleServer.sh down # Scale down to 0 instances
+```
+
+### 3. Generate Client QR Code
+Run the `generateQR.sh` script to generate a QR code for the client configuration:
+```bash
+./generateQR.sh --stack-name makeMeFree
+```
+Optional flags:
+- `--region`: Specify the AWS region (default: `eu-central-1`).
+- `--command`: Customize the command executed on the instance.
+
+## Outputs
+- **Client Configuration File**: `/tmp/client_wg0.conf` on the EC2 instance.
+- **QR Code**: `/tmp/wireguard_config_qr.png` on the EC2 instance.
+
+## Cleanup
+To delete the stack and all associated resources, run:
+```bash
+./init.sh -f /path/to/makeMeFree.yaml -d
+```
+
+## Notes
+- Ensure the AWS CLI is authenticated and has the necessary permissions.
+- The scripts assume a default VPC and public subnets are available in the specified region.
 
 ## License
-
-This project is licensed under the MIT License. See the LICENSE file for more details.
-
-TODO:
-aws ssm start-session     --region eu-central-1     --target $(aws ec2 describe-instances \
-        --region eu-central-1 \
-        --filters "Name=tag:aws:cloudformation:stack-name,Values=makeMeFree" "Name=instance-state-name,Values=running" \
-        --query "Reservations[0].Instances[0].InstanceId" \
-        --output text)     --document-name AWS-StartInteractiveCommand     --parameters command="qrencode -t ansiutf8 < /tmp/client_wg0.conf"
-Install wireguard localy
-random port number
+This project is licensed under the MIT License.
